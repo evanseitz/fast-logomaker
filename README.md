@@ -1,5 +1,9 @@
 # Fast Logomaker
 
+![PyPI version](https://img.shields.io/pypi/v/fast-logomaker)
+![License: MIT](https://img.shields.io/pypi/l/fast-logomaker)
+![Python](https://img.shields.io/pypi/pyversions/fast-logomaker)
+
 An optimized batch logo generation library for sequence logos. This is an optimized version of the original [Logomaker](https://github.com/jbkinney/logomaker) package by Ammar Tareen and Justin Kinney.
 
 ## Installation
