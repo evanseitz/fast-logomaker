@@ -18,39 +18,59 @@ from matplotlib.colors import to_rgb
 
 
 class BatchLogo:
-    """
-    Optimized batch logo processor for sequence logos.
-    
-    This class provides efficient batch processing of multiple sequence logos
-    with path caching and optimized transformations.
-    
-    Parameters
-    ----------
-    values : array-like
-        Array of shape (N, L, alphabet_size) containing logo values.
-    alphabet : list, optional
-        List of characters in the alphabet. Default is ['A', 'C', 'G', 'T'].
-    figsize : list, optional
-        Figure size for single logos. Default is [10, 2.5].
-    batch_size : int, optional
-        Batch size for processing. Default is 50.
-    font_name : str, optional
-        Font family name. Default is 'sans'.
-    y_min_max : tuple, optional
-        Fixed y-axis limits (min, max). Default is None.
-    show_progress : bool, optional
-        Whether to show progress bar. Default is True.
-    **kwargs : dict
-        Additional keyword arguments.
+    """Optimized batch logo processor for sequence logos.
+
+    Provides efficient batch processing of multiple sequence logos
+    with path caching and optimized transformations. Supports both
+    hypothetical (default) and contribution display modes.
     """
 
     def __init__(self, values, alphabet=None, figsize=[10, 2.5], batch_size=50,
-                 font_name='sans', y_min_max=None, show_progress=True, **kwargs):
-        """Initialize BatchLogo processor."""
+                 font_name='sans', y_min_max=None, show_progress=True,
+                 sequences=None, contribution=False, **kwargs):
+        """Initialize BatchLogo processor.
+
+        Parameters
+        ----------
+        values : array-like
+            Attribution values of shape (N, L, A).
+        alphabet : list, optional
+            List of characters in the alphabet. Default is ['A', 'C', 'G', 'T'].
+        figsize : list, optional
+            Figure size for single logos. Default is [10, 2.5].
+        batch_size : int, optional
+            Batch size for processing. Default is 50.
+        font_name : str, optional
+            Font family name. Default is 'sans'.
+        y_min_max : tuple, optional
+            Fixed y-axis limits (min, max). Default is None.
+        show_progress : bool, optional
+            Whether to show progress bar. Default is True.
+        sequences : list of str or numpy.ndarray, optional
+            Sequences corresponding to each logo. Required when contribution=True.
+            If strings, converted to one-hot internally using alphabet.
+            If array, must be one-hot encoded with shape (N, L, A).
+        contribution : bool, optional
+            If True, multiply attribution values by sequence one-hot encodings
+            to show only the contributions of observed nucleotides (contribution
+            mode). When enabled, center_values is forced to False. Default is
+            False.
+        **kwargs : dict
+            Additional keyword arguments.
+        """
         # Initialize instance caches
         self._path_cache = {}
         self._m_path_cache = {}
         self._font_cache = {}
+
+        # Apply contribution mode: mask values by sequence one-hot
+        if contribution:
+            if sequences is None:
+                raise ValueError("sequences must be provided when contribution=True")
+            values = np.array(values)
+            oh = self._sequences_to_onehot(sequences, alphabet or ['A', 'C', 'G', 'T'])
+            values = values * oh
+            kwargs['center_values'] = False
 
         # Handle centering if requested
         center_values = kwargs.pop('center_values', False)
@@ -515,6 +535,29 @@ class BatchLogo:
     def _center_matrix(self, values):
         """Center the values in each position (row) of the matrix."""
         return values - values.mean(axis=-1, keepdims=True)
+
+    @staticmethod
+    def _sequences_to_onehot(sequences, alphabet):
+        """Convert sequences to one-hot encoding array.
+
+        Accepts either a list of strings or a pre-encoded numpy array of
+        shape (N, L, A). String sequences are converted using the provided
+        alphabet.
+        """
+        arr = np.asarray(sequences)
+        if arr.ndim == 3:
+            return arr.astype(np.float64)
+        char_to_idx = {c: i for i, c in enumerate(alphabet)}
+        A = len(alphabet)
+        N = len(sequences)
+        L = len(sequences[0])
+        oh = np.zeros((N, L, A), dtype=np.float64)
+        for n, seq in enumerate(sequences):
+            for pos, char in enumerate(seq):
+                idx = char_to_idx.get(char)
+                if idx is not None:
+                    oh[n, pos, idx] = 1.0
+        return oh
 
     def draw_variability_logo(self, view_window=None, figsize=None, border=True):
         """
