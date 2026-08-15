@@ -27,7 +27,8 @@ class BatchLogo:
 
     def __init__(self, values, alphabet=None, figsize=[10, 2.5], batch_size=50,
                  font_name='sans', y_min_max=None, show_progress=True,
-                 sequences=None, contribution=False, **kwargs):
+                 sequences=None, contribution=False, positions=None,
+                 mirror_glyphs=False, **kwargs):
         """Initialize BatchLogo processor.
 
         Parameters
@@ -55,6 +56,16 @@ class BatchLogo:
             to show only the contributions of observed nucleotides (contribution
             mode). When enabled, center_values is forced to False. Default is
             False.
+        positions : array-like, optional
+            X-axis coordinates for each of the L positions. Default is None, which uses `range(L)`.
+            May be descending (e.g. to represent a negative-strand region).
+            Either shape (L,) (shared across every logo in the batch) or shape
+            (N, L) (separate positions per logo).
+        mirror_glyphs : bool or array-like, optional
+            If True, pre-mirrors each glyph horizontally around its own center
+            before placing it. Default is False. Either a single bool (shared 
+            across every logo in the batch) or an array-like of N bools (one per logo).
+            Useful if plotting a negative-strand logo when combined with `ax.xaxis.set_inverted(True)`.            
         **kwargs : dict
             Additional keyword arguments.
         """
@@ -83,6 +94,48 @@ class BatchLogo:
 
         self.N = self.values.shape[0]  # number of logos
         self.L = self.values.shape[1]  # length of each logo
+
+        # Check shape and set positions
+        if positions is None:
+            self.positions = np.arange(self.L)
+            self._positions_per_logo = False
+        else:
+            self.positions = np.asarray(positions)
+            if self.positions.ndim == 1:
+                if len(self.positions) != self.L:
+                    raise ValueError(
+                        f"positions has length {len(self.positions)}, must match L ({self.L})"
+                    )
+                self._positions_per_logo = False
+            elif self.positions.ndim == 2:
+                if self.positions.shape != (self.N, self.L):
+                    raise ValueError(
+                        f"positions has shape {self.positions.shape}, must be "
+                        f"({self.N}, {self.L}) for per-logo positions"
+                    )
+                self._positions_per_logo = True
+            else:
+                raise ValueError(
+                    f"positions must be 1-D (shared) or 2-D (per-logo), got ndim={self.positions.ndim}"
+                )
+
+        # Check shape and set mirror_glyphs
+        if isinstance(mirror_glyphs, (bool, np.bool_)):
+            self.mirror_glyphs = mirror_glyphs
+            self._mirror_per_logo = False
+        else:
+            mirror_arr = np.asarray(mirror_glyphs)
+            if mirror_arr.ndim == 0:
+                self.mirror_glyphs = bool(mirror_arr)
+                self._mirror_per_logo = False
+            else:
+                if mirror_arr.shape != (self.N,):
+                    raise ValueError(
+                        f"mirror_glyphs has shape {mirror_arr.shape}, must be scalar "
+                        f"or ({self.N},) for per-logo mirroring"
+                    )
+                self.mirror_glyphs = mirror_arr
+                self._mirror_per_logo = True
 
         self.kwargs = self._get_default_kwargs()
         self.kwargs.update(kwargs)
@@ -185,9 +238,11 @@ class BatchLogo:
 
         for idx in range(start_idx, end_idx):
             glyph_data = []
+            positions_for_idx = self.positions[idx] if self._positions_per_logo else self.positions
+            mirror_for_idx = self.mirror_glyphs[idx] if self._mirror_per_logo else self.mirror_glyphs
 
-            for pos in range(self.L):
-                values = self.values[idx, pos]
+            for i, pos in enumerate(positions_for_idx):
+                values = self.values[idx, i]
                 ordered_indices = self._get_ordered_indices(values)
                 values = values[ordered_indices]
                 chars = [str(self.alphabet[i]) for i in ordered_indices]
@@ -205,7 +260,8 @@ class BatchLogo:
                         path_data = self._path_cache[char]['normal']
                         transformed_path = self._get_transformed_path(
                             path_data, pos, floor, ceiling,
-                            self._m_path_cache['extents'].width
+                            self._m_path_cache['extents'].width,
+                            mirror=mirror_for_idx
                         )
 
                         # Apply fade_above and shade_above for positive values (glyphs above x-axis)
@@ -244,7 +300,8 @@ class BatchLogo:
                             ]
                             transformed_path = self._get_transformed_path(
                                 path_data, pos, floor, ceiling,
-                                self._m_path_cache['extents'].width
+                                self._m_path_cache['extents'].width,
+                                mirror=mirror_for_idx
                             )
 
                             # Apply fade and shade effects for negative values
@@ -339,10 +396,10 @@ class BatchLogo:
 
     def draw_single(self, idx, fixed_ylim=True, view_window=None, figsize=None,
                     highlight_ranges=None, highlight_colors=None, highlight_alpha=0.5,
-                    border=True, ax=None):
+                    border=True, baseline=True, ax=None, apply_layout=True):
         """
         Draw a single logo.
-        
+
         Parameters
         ----------
         idx : int
@@ -362,9 +419,13 @@ class BatchLogo:
             Alpha transparency for highlights. Default is 0.5.
         border : bool, optional
             Whether to show the axis spines. Default is True.
+        baseline : bool, optional
+            Whether to draw the horizontal y=0 baseline. Default is True.
         ax : matplotlib.axes.Axes, optional
             If provided, draw the logo on this axes.
-            
+        apply_layout : bool, optional
+            Whether to call `plt.tight_layout()` after drawing. Default is True.
+
         Returns
         -------
         fig : matplotlib.figure.Figure or None
@@ -385,7 +446,8 @@ class BatchLogo:
         else:
             fig = None
         self._draw_single_logo(
-            ax, self.processed_logos[idx], fixed_ylim=fixed_ylim, border=border
+            ax, self.processed_logos[idx], fixed_ylim=fixed_ylim, border=border,
+            baseline=baseline, idx=idx
         )
         
         # Add highlighting if specified
@@ -422,16 +484,17 @@ class BatchLogo:
         if view_window is not None:
             start, end = view_window
             ax.set_xlim(start - 0.5, end - 0.5)
-        plt.tight_layout()
+        if apply_layout:
+            plt.tight_layout()
         if own_fig:
             return fig, ax
         else:
             return None, ax
 
-    def _draw_single_logo(self, ax, logo_data, fixed_ylim=True, border=True):
+    def _draw_single_logo(self, ax, logo_data, fixed_ylim=True, border=True, baseline=True, idx=None):
         """
         Draw a single logo on the given axes.
-        
+
         Parameters
         ----------
         ax : matplotlib.axes.Axes
@@ -442,6 +505,11 @@ class BatchLogo:
             Whether to use same y-axis limits across all logos. Default is True.
         border : bool, optional
             Whether to show the axis spines. Default is True.
+        baseline : bool, optional
+            Whether to draw the horizontal y=0 baseline. Default is True.
+        idx : int, optional
+            Index of the logo being drawn, used to look up its own positions
+            when `positions` is per-logo (shape (N, L)). Ignored otherwise.
         """
         patches = []
         for glyph_data in logo_data['glyphs']:
@@ -456,7 +524,8 @@ class BatchLogo:
 
         ax.add_collection(PatchCollection(patches, match_original=True))
 
-        ax.set_xlim(-0.5, self.L - 0.5)
+        logo_positions = self.positions[idx] if (idx is not None and self._positions_per_logo) else self.positions
+        ax.set_xlim(logo_positions.min() - 0.5, logo_positions.max() + 0.5)
 
         if fixed_ylim and self.y_min_max is not None:
             ax.set_ylim(self.y_min_max[0], self.y_min_max[1])
@@ -468,7 +537,7 @@ class BatchLogo:
             ymin = min(ymin, 0)
             ax.set_ylim(ymin, ymax)
 
-        if self.kwargs['baseline_width'] > 0:
+        if baseline and self.kwargs['baseline_width'] > 0:
             ax.axhline(
                 y=0, color='black',
                 linewidth=self.kwargs['baseline_width'],
@@ -506,7 +575,7 @@ class BatchLogo:
         else:  # fixed
             return np.array(range(len(values)))[::-1]
 
-    def _get_transformed_path(self, path_data, pos, floor, ceiling, m_width):
+    def _get_transformed_path(self, path_data, pos, floor, ceiling, m_width, mirror=None):
         """Get transformed path with proper scaling and position."""
         base_path = path_data['path']
         base_extents = path_data['extents']
@@ -521,9 +590,18 @@ class BatchLogo:
 
         vstretch = (ceiling - floor) / base_extents.height
 
+        if mirror is None:
+            mirror = self.mirror_glyphs
+
         transform = Affine2D()
         transform.translate(tx=-base_extents.xmin, ty=-base_extents.ymin)
         transform.scale(hstretch, vstretch)
+        if mirror:
+            # Pre-mirror the glyph around its own center. 
+            # Useful if reversing the x-axis later with ax.xaxis.set_inverted(True),
+            # to keep the glyphs facing the right way even as the overall plot is inverted.
+            transform.scale(-1, 1)
+            transform.translate(tx=char_width, ty=0)
         transform.translate(
             tx=pos - bbox_width / 2.0 + self.kwargs['vpad'] + char_shift,
             ty=floor
@@ -571,7 +649,7 @@ class BatchLogo:
             Figure size in inches. If None, use size from initialization.
         border : bool, optional
             Whether to show the axis spines. Default is True.
-            
+
         Returns
         -------
         fig : matplotlib.figure.Figure
@@ -579,11 +657,15 @@ class BatchLogo:
         ax : matplotlib.axes.Axes
             The axes object.
         """
+        if self._positions_per_logo or self._mirror_per_logo:
+            raise ValueError(
+                "draw_variability_logo does not support per-logo positions/mirror_glyphs."
+            )
         logo_data = {'glyphs': []}
 
-        for pos in range(self.L):
+        for i, pos in enumerate(self.positions):
             for cluster_idx in range(self.values.shape[0]):
-                values = self.values[cluster_idx, pos]
+                values = self.values[cluster_idx, i]
                 ordered_indices = self._get_ordered_indices(values)
                 values = values[ordered_indices]
                 chars = [str(self.alphabet[i]) for i in ordered_indices]
