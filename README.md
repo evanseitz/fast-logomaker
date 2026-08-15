@@ -70,6 +70,8 @@ FastLogo(
     fade_above=0,              # alpha fade for positive values
     shade_above=0,             # color shade for positive values
     width=0.9,                 # character width
+    positions=None,            # x-axis coordinates for each of the L positions 
+    mirror_glyphs=False,       # pre-mirror glyphs, to cancel a later axis inversion
     **kwargs
 )
 ```
@@ -96,7 +98,8 @@ fig, ax = logo.draw_single(
     highlight_ranges=None,         # list of (start, end) tuples or position lists
     highlight_colors=None,         # colors for highlights
     highlight_alpha=0.5,           # transparency for highlights
-    ax=None                        # existing axes to draw on
+    ax=None,                       # existing ax to draw on
+    apply_layout=True              # whether to call plt.tight_layout() after drawing
 )
 ```
 
@@ -194,6 +197,57 @@ fig, ax = logo.draw_variability_logo(
     figsize=(20, 2.5),
     view_window=[50, 150]
 )
+```
+
+## Positioning & Layout
+
+### Custom X-Axis Positions
+
+By default, glyphs are placed at integer positions `0..L-1`. Pass `positions` to place them at arbitrary x-coordinates instead, like the coordinates of your genomic region:
+
+```python
+logo = FastLogo(values, positions=np.arange(50, 100))
+logo.process_all()
+fig, ax = logo.draw_single(0)
+```
+
+#### Negative-strand coordinates
+
+Use descending x coordinates and `xaxis.set_inverted(True)` to represent negative-strand regions, and ensure the glyphs stay facing the right way with `mirror_glyphs`:
+
+```python
+logo = FastLogo(values, positions=np.arange(100, 50, -1), mirror_glyphs=True)
+logo.process_all()
+fig, ax = logo.draw_single(0)
+ax.xaxis.set_inverted(True)  # glyphs now render forward-facing, still in the flipped order
+```
+
+### Batching Logos with Different Coordinates/Strands
+
+`positions` and `mirror_glyphs` also accept per-logo forms, so logos with entirely different x-axes/strands can still be batched into a single `FastLogo` call by passing `positions` as shape `(N, L)` and mirror_glyphs as `(N,)`:
+
+```python
+positions = np.stack([
+    np.arange(1000, 1000 + L),       # logo 0: ascending (+ strand)
+    np.arange(5000 + L, 5000, -1),   # logo 1: descending (- strand)
+])
+mirror_glyphs = [False, True]
+
+logo = FastLogo(values, positions=positions, mirror_glyphs=mirror_glyphs)
+logo.process_all()
+fig, ax = logo.draw_single(1)
+ax.xaxis.set_inverted(True)  # only needed for the logos you draw with descending positions
+```
+
+Note: `draw_variability_logo()` does not support per-logo `positions`/`mirror_glyphs` (it overlays all logos at shared positions).
+
+### Embedding in an Existing Figure Layout
+
+When drawing onto an axes that belongs to a figure using a layout manager other than tight (e.g. `constrained`), pass `apply_layout=False` to `draw_single()` to skip its `plt.tight_layout()` call and avoid disturbing that layout:
+
+```python
+fig, ax = plt.subplots(layout="constrained")
+logo.draw_single(0, ax=ax, apply_layout=False)
 ```
 
 ## Color Schemes
