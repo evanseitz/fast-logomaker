@@ -61,6 +61,7 @@ FastLogo(
     figsize=[10, 2.5],         # figure size for single logos
     batch_size=50,             # batch size for processing
     font_name='sans',          # font family (e.g., 'Arial Rounded MT Bold')
+    font_weight='normal',      # font weight (e.g., 'bold')
     color_scheme='classic',    # color scheme name or dict
     y_min_max=None,            # fixed y-axis limits (min, max)
     show_progress=True,        # show progress bar during processing
@@ -72,6 +73,7 @@ FastLogo(
     width=0.9,                 # character width
     positions=None,            # x coordinates for each column; default 0..L-1
     mirror_glyphs=False,       # pre-mirror glyphs so an inverted x-axis stays readable
+    dont_stretch_more_than='M',  # glyphs never stretch wider than this character would
     **kwargs
 )
 ```
@@ -161,6 +163,22 @@ logo = FastLogo(
 
 logo.process_all()
 fig, ax = logo.draw_single(0, border=False)
+```
+
+### Matching Logomaker's Style
+
+`FastLogo`'s defaults draw narrower, lighter glyphs than Logomaker and fade glyphs
+below the axis. These settings reproduce Logomaker's defaults:
+
+```python
+logo = FastLogo(
+    values,
+    font_weight='bold',
+    width=0.95,
+    fade_below=0,
+    shade_below=0,
+    dont_stretch_more_than='E',
+)
 ```
 
 ### View Window and Highlighting

@@ -28,7 +28,7 @@ class BatchLogo:
     def __init__(self, values, alphabet=None, figsize=[10, 2.5], batch_size=50,
                  font_name='sans', y_min_max=None, show_progress=True,
                  sequences=None, contribution=False, positions=None,
-                 mirror_glyphs=False, **kwargs):
+                 mirror_glyphs=False, dont_stretch_more_than='M', **kwargs):
         """Initialize BatchLogo processor.
 
         Parameters
@@ -72,6 +72,11 @@ class BatchLogo:
             logo, or N bools, one per logo. Use this together with
             ``ax.xaxis.set_inverted(True)`` so letters still face forward
             after the axis is reversed.
+        dont_stretch_more_than : str, optional
+            Single character whose width caps how far any glyph is stretched
+            horizontally. Default is 'M'. Glyphs narrower than this character
+            stay narrower than ``width``. Use 'E', logomaker's default, to let
+            A, C, G and T fill the full width.
         **kwargs : dict
             Additional keyword arguments.
         """
@@ -105,6 +110,13 @@ class BatchLogo:
         self.mirror_glyphs, self._mirror_per_logo = self._normalize_mirror_glyphs(
             mirror_glyphs
         )
+        if not (isinstance(dont_stretch_more_than, str)
+                and len(dont_stretch_more_than) == 1):
+            raise ValueError(
+                "dont_stretch_more_than must be a single character, "
+                f"got {dont_stretch_more_than!r}"
+            )
+        self.dont_stretch_more_than = dont_stretch_more_than
 
         self.kwargs = self._get_default_kwargs()
         self.kwargs.update(kwargs)
@@ -190,9 +202,10 @@ class BatchLogo:
         """Process a batch of logos."""
         font_props = self._get_font_props()
 
-        # Cache M path first (for width reference)
+        # Cache the stretch-limit character's path first (for width reference)
         if not self._m_path_cache:
-            m_path = TextPath((0, 0), 'M', size=1, prop=font_props)
+            m_path = TextPath((0, 0), self.dont_stretch_more_than, size=1,
+                              prop=font_props)
             m_extents = m_path.get_extents()
             self._m_path_cache = {
                 'path': m_path,

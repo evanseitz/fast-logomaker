@@ -138,6 +138,24 @@ class LogoTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             logo.draw_variability_logo(apply_layout=False)
 
+    def test_dont_stretch_more_than_sets_glyph_width(self):
+        values = np.abs(self.values[:1])
+        default = self._logo(values).process_all()
+        explicit_m = self._logo(values, dont_stretch_more_than="M").process_all()
+        for a, b in zip(_vertices(default, 0), _vertices(explicit_m, 0)):
+            np.testing.assert_allclose(a, b)
+
+        # Every ACGT glyph is wider than 'E', so each fills the full width.
+        e_cap = self._logo(
+            values, font_weight="bold", width=0.95, dont_stretch_more_than="E"
+        ).process_all()
+        for glyph in e_cap.processed_logos[0]["glyphs"]:
+            self.assertAlmostEqual(glyph["path"].get_extents().width, 0.95)
+
+        for bad in ("", "EM", 1):
+            with self.assertRaises(ValueError):
+                self._logo(dont_stretch_more_than=bad)
+
     def test_unknown_color_scheme_raises(self):
         with self.assertRaises(ValueError):
             self._logo(color_scheme="not-a-scheme")
